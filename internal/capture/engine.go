@@ -8,6 +8,8 @@ import (
 )
 
 func StartCapture(handle *pcap.Handle, out chan<- []byte, stop <-chan struct{}) {
+
+	defer close(out)
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 
 	for {

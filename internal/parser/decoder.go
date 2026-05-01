@@ -1,0 +1,54 @@
+package parser
+
+import (
+	"log"
+
+	"packet-sniffer/pkg/models"
+
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
+)
+
+func StartParser(in <-chan []byte, out chan<- models.Packet) {
+
+	defer close(out)
+	for data := range in {
+
+		packet := gopacket.NewPacket(data, layers.LayerTypeEthernet, gopacket.Default)
+
+		ipLayer := packet.Layer(layers.LayerTypeIPv4)
+		if ipLayer == nil {
+			continue
+		}
+
+		ip, _ := ipLayer.(*layers.IPv4)
+
+		parsed := models.Packet{
+			Timestamp: packet.Metadata().Timestamp,
+			SrcIP:     ip.SrcIP.String(),
+			DstIP:     ip.DstIP.String(),
+			Protocol:  ip.Protocol.String(),
+			Length:    len(data),
+		}
+
+		// TCP
+		if tcpLayer := packet.Layer(layers.LayerTypeTCP); tcpLayer != nil {
+			tcp, _ := tcpLayer.(*layers.TCP)
+			parsed.SrcPort = uint16(tcp.SrcPort)
+			parsed.DstPort = uint16(tcp.DstPort)
+			parsed.Protocol = "TCP"
+		}
+
+		// UDP
+		if udpLayer := packet.Layer(layers.LayerTypeUDP); udpLayer != nil {
+			udp, _ := udpLayer.(*layers.UDP)
+			parsed.SrcPort = uint16(udp.SrcPort)
+			parsed.DstPort = uint16(udp.DstPort)
+			parsed.Protocol = "UDP"
+		}
+
+		out <- parsed
+	}
+
+	log.Println("Parser stopped")
+}
