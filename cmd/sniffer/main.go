@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"packet-sniffer/internal/capture"
+	"packet-sniffer/internal/filter"
 	iface "packet-sniffer/internal/interface"
 	"packet-sniffer/internal/parser"
 	"packet-sniffer/pkg/models"
@@ -34,18 +35,37 @@ func main() {
 	//3. channels
 	rawChan := make(chan []byte, 1000)
 	parsedChan := make(chan models.Packet, 1000)
+	filteredChan := make(chan models.Packet, 1000)
 	stop := make(chan struct{})
+
+	// Create filter
+	myFilter := &filter.BasicFilter{
+		AllowedProtocols: map[string]bool{
+			"HTTPS": true,
+			"DNS":   true,
+		},
+		BlockedPorts: map[uint16]bool{
+			5353: true, // block mDNS noise
+		},
+	}
+
 	//4 pipelines
 	go capture.StartCapture(handle, rawChan, stop)
 	go parser.StartParser(rawChan, parsedChan)
+	go filter.StartFilter(parsedChan, filteredChan, myFilter)
 
 	// 5. Output
-	for pkt := range parsedChan {
-		fmt.Printf("%s | %s → %s | %d bytes\n",
-			pkt.Protocol,
+	for pkt := range filteredChan {
+
+		fmt.Printf("[%s] %s:%d → %s:%d | %s | %d bytes %s\n",
+			pkt.AppProtocol,
 			pkt.SrcIP,
+			pkt.SrcPort,
 			pkt.DstIP,
+			pkt.DstPort,
+			pkt.Protocol,
 			pkt.Length,
+			pkt.TCPFlags, // NEW: print TCP flags
 		)
 	}
 }

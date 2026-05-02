@@ -8,10 +8,13 @@ type Packet struct {
 	SrcIP string
 	DstIP string
 
-	Protocol string
-
 	SrcPort uint16
 	DstPort uint16
+
+	Protocol    string // TCP , UDp
+	AppProtocol string // HTTP, DNS, TLS
+
+	TCPFlags string // for TCP packets, store flags like SYN, ACK, etc.
 
 	Length int
 }

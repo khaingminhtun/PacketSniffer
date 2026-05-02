@@ -3,6 +3,8 @@ package parser
 import (
 	"log"
 
+	"packet-sniffer/internal/analyzer"
+	"packet-sniffer/internal/utils"
 	"packet-sniffer/pkg/models"
 
 	"github.com/google/gopacket"
@@ -37,6 +39,12 @@ func StartParser(in <-chan []byte, out chan<- models.Packet) {
 			parsed.SrcPort = uint16(tcp.SrcPort)
 			parsed.DstPort = uint16(tcp.DstPort)
 			parsed.Protocol = "TCP"
+
+			// app protocol from destination port
+			parsed.AppProtocol = analyzer.DetectAppProtocol(parsed.SrcPort, parsed.DstPort)
+
+			// NEW: TCP flags
+			parsed.TCPFlags = utils.FormatTCPFlags(tcp)
 		}
 
 		// UDP
@@ -45,6 +53,8 @@ func StartParser(in <-chan []byte, out chan<- models.Packet) {
 			parsed.SrcPort = uint16(udp.SrcPort)
 			parsed.DstPort = uint16(udp.DstPort)
 			parsed.Protocol = "UDP"
+
+			parsed.AppProtocol = analyzer.DetectAppProtocol(parsed.SrcPort, parsed.DstPort)
 		}
 
 		out <- parsed
