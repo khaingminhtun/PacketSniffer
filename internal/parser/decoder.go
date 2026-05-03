@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"fmt"
 	"log"
 
 	"packet-sniffer/internal/analyzer"
@@ -45,6 +46,17 @@ func StartParser(in <-chan []byte, out chan<- models.Packet) {
 
 			// NEW: TCP flags
 			parsed.TCPFlags = utils.FormatTCPFlags(tcp)
+			fmt.Println("TCP payload:", len(tcp.Payload))
+
+			// 🔥 IMPORTANT: only try TLS if payload exists
+			if len(tcp.Payload) > 0 {
+				fmt.Println("HAS TLS DATA")
+				if sni, ok := ExtractTLSSNI(tcp.Payload); ok {
+					parsed.IsTLS = true
+					parsed.TLSSNI = sni
+					parsed.AppProtocol = "TLS"
+				}
+			}
 		}
 
 		// UDP
@@ -55,6 +67,13 @@ func StartParser(in <-chan []byte, out chan<- models.Packet) {
 			parsed.Protocol = "UDP"
 
 			parsed.AppProtocol = analyzer.DetectAppProtocol(parsed.SrcPort, parsed.DstPort)
+		}
+
+		// ✅ NEW: DNS detection (AFTER transport layer)
+		if dnsName, ok := ExtractDNS(packet); ok {
+			parsed.IsDNS = true
+			parsed.DNSQuery = dnsName
+			parsed.AppProtocol = "DNS"
 		}
 
 		out <- parsed

@@ -16,5 +16,11 @@ type Packet struct {
 
 	TCPFlags string // for TCP packets, store flags like SYN, ACK, etc.
 
+	IsDNS    bool // flag to indicate if this packet contains DNS data
+	DNSQuery string
+
 	Length int
+
+	TLSSNI string
+	IsTLS  bool
 }

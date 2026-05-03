@@ -54,9 +54,35 @@ func main() {
 	go parser.StartParser(rawChan, parsedChan)
 	go filter.StartFilter(parsedChan, filteredChan, myFilter)
 
-	// 5. Output
 	for pkt := range filteredChan {
 
+		// ---------------------------
+		// DNS
+		// ---------------------------
+		if pkt.IsDNS {
+			fmt.Printf("[DNS] %s → %s | Query: %s\n",
+				pkt.SrcIP,
+				pkt.DstIP,
+				pkt.DNSQuery,
+			)
+			continue
+		}
+
+		// ---------------------------
+		// TLS (SNI)
+		// ---------------------------
+		if pkt.IsTLS {
+			fmt.Printf("[TLS] %s → %s | SNI: %s\n",
+				pkt.SrcIP,
+				pkt.DstIP,
+				pkt.TLSSNI,
+			)
+			continue
+		}
+
+		// ---------------------------
+		// Normal traffic
+		// ---------------------------
 		fmt.Printf("[%s] %s:%d → %s:%d | %s | %d bytes %s\n",
 			pkt.AppProtocol,
 			pkt.SrcIP,
@@ -65,7 +91,7 @@ func main() {
 			pkt.DstPort,
 			pkt.Protocol,
 			pkt.Length,
-			pkt.TCPFlags, // NEW: print TCP flags
+			pkt.TCPFlags,
 		)
 	}
 }

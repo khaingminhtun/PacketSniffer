@@ -14,5 +14,11 @@ func OpenDevice(device string) (*pcap.Handle, error) {
 		return nil, err
 	}
 
+	// ADD bpf filter here if needed
+	err = handle.SetBPFFilter("tcp port 443")
+	if err != nil {
+		return nil, err
+	}
+
 	return handle, nil
 }
