@@ -3,16 +3,20 @@ package main
 import (
 	"fmt"
 	"log"
+
 	"packet-sniffer/internal/capture"
 	"packet-sniffer/internal/filter"
 	iface "packet-sniffer/internal/interface"
 	"packet-sniffer/internal/parser"
+	"packet-sniffer/internal/reassembly"
 	"packet-sniffer/pkg/models"
+
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 )
 
 func main() {
 
-	// 1. List available interfaces
 	devices, err := iface.ListInterfaces()
 	if err != nil {
 		log.Fatal(err)
@@ -25,73 +29,69 @@ func main() {
 
 	fmt.Println("Using interface:", device)
 
-	//2. capture
 	handle, err := capture.OpenDevice(device)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer handle.Close()
 
-	//3. channels
+	// channels
 	rawChan := make(chan []byte, 1000)
 	parsedChan := make(chan models.Packet, 1000)
 	filteredChan := make(chan models.Packet, 1000)
 	stop := make(chan struct{})
 
-	// Create filter
+	// stream parser (TLS)
+	streamParser := parser.NewStreamParser()
+
+	// reassembly
+	streamFactory := reassembly.NewStreamFactory(streamParser)
+	assembler := reassembly.New(streamFactory)
+
 	myFilter := &filter.BasicFilter{
 		AllowedProtocols: map[string]bool{
-			"HTTPS": true,
-			"DNS":   true,
-		},
-		BlockedPorts: map[uint16]bool{
-			5353: true, // block mDNS noise
+			"TCP": true,
+			"UDP": true,
+			"DNS": true,
 		},
 	}
 
-	//4 pipelines
+	// capture
 	go capture.StartCapture(handle, rawChan, stop)
+
+	// packet pipeline
 	go parser.StartParser(rawChan, parsedChan)
 	go filter.StartFilter(parsedChan, filteredChan, myFilter)
 
+	// stream pipeline (IMPORTANT)
+	go func() {
+		for raw := range rawChan {
+
+			packet := gopacket.NewPacket(raw, layers.LayerTypeEthernet, gopacket.Default)
+
+			assembler.Process(packet)
+		}
+	}()
+	// UI
 	for pkt := range filteredChan {
 
-		// ---------------------------
-		// DNS
-		// ---------------------------
 		if pkt.IsDNS {
-			fmt.Printf("[DNS] %s → %s | Query: %s\n",
-				pkt.SrcIP,
-				pkt.DstIP,
-				pkt.DNSQuery,
-			)
+			fmt.Printf("[DNS] %s → %s | %s\n",
+				pkt.SrcIP, pkt.DstIP, pkt.DNSQuery)
 			continue
 		}
 
-		// ---------------------------
-		// TLS (SNI)
-		// ---------------------------
 		if pkt.IsTLS {
 			fmt.Printf("[TLS] %s → %s | SNI: %s\n",
-				pkt.SrcIP,
-				pkt.DstIP,
-				pkt.TLSSNI,
-			)
+				pkt.SrcIP, pkt.DstIP, pkt.TLSSNI)
 			continue
 		}
 
-		// ---------------------------
-		// Normal traffic
-		// ---------------------------
-		fmt.Printf("[%s] %s:%d → %s:%d | %s | %d bytes %s\n",
+		fmt.Printf("[%s] %s:%d → %s:%d | %d bytes\n",
 			pkt.AppProtocol,
-			pkt.SrcIP,
-			pkt.SrcPort,
-			pkt.DstIP,
-			pkt.DstPort,
-			pkt.Protocol,
+			pkt.SrcIP, pkt.SrcPort,
+			pkt.DstIP, pkt.DstPort,
 			pkt.Length,
-			pkt.TCPFlags,
 		)
 	}
 }
