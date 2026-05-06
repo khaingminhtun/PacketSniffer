@@ -39,10 +39,16 @@ func main() {
 	rawChan := make(chan []byte, 1000)
 	parsedChan := make(chan models.Packet, 1000)
 	filteredChan := make(chan models.Packet, 1000)
+	streamChan := make(chan models.StreamEvent, 1000)
 	stop := make(chan struct{})
 
 	// stream parser (TLS)
 	streamParser := parser.NewStreamParser()
+
+	// CONNECT STREAM OUTPUT
+	streamParser.SetHandler(func(ev models.StreamEvent) {
+		streamChan <- ev
+	})
 
 	// reassembly
 	streamFactory := reassembly.NewStreamFactory(streamParser)
@@ -63,16 +69,40 @@ func main() {
 	go parser.StartParser(rawChan, parsedChan)
 	go filter.StartFilter(parsedChan, filteredChan, myFilter)
 
-	// stream pipeline (IMPORTANT)
+	// single dispatcher for both parsing and filtering to handle stream reassembly
 	go func() {
 		for raw := range rawChan {
 
 			packet := gopacket.NewPacket(raw, layers.LayerTypeEthernet, gopacket.Default)
 
+			//1. reassembly
 			assembler.Process(packet)
+
 		}
 	}()
 	// UI
+
+	// STREAM OUTPUT
+	go func() {
+		for ev := range streamChan {
+
+			if ev.IsTLS {
+				fmt.Printf("[TLS] %s | SNI: %s | %d bytes\n",
+					ev.Key,
+					ev.SNI,
+					ev.DataLen,
+				)
+				continue
+			}
+
+			fmt.Printf("[STREAM] %s | %d bytes\n",
+				ev.Key,
+				ev.DataLen,
+			)
+		}
+	}()
+
+	//packet output
 	for pkt := range filteredChan {
 
 		if pkt.IsDNS {

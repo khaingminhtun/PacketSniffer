@@ -35,7 +35,10 @@ func StartParser(in <-chan []byte, out chan<- models.Packet) {
 
 		// TCP
 		if tcpLayer := packet.Layer(layers.LayerTypeTCP); tcpLayer != nil {
-			tcp, _ := tcpLayer.(*layers.TCP)
+			tcp, ok := tcpLayer.(*layers.TCP)
+			if !ok {
+				continue
+			}
 			parsed.SrcPort = uint16(tcp.SrcPort)
 			parsed.DstPort = uint16(tcp.DstPort)
 			parsed.Protocol = "TCP"
