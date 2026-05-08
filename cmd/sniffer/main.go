@@ -17,6 +17,10 @@ import (
 
 func main() {
 
+	// =========================
+	// INTERFACE SELECTION
+	// =========================
+
 	devices, err := iface.ListInterfaces()
 	if err != nil {
 		log.Fatal(err)
@@ -29,30 +33,57 @@ func main() {
 
 	fmt.Println("Using interface:", device)
 
+	// =========================
+	// OPEN DEVICE
+	// =========================
+
 	handle, err := capture.OpenDevice(device)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer handle.Close()
 
-	// channels
+	// =========================
+	// CHANNELS
+	// =========================
+
+	// raw capture channel
 	rawChan := make(chan []byte, 1000)
+
+	// fan-out channels
+	parseChan := make(chan []byte, 1000)
+	assemblerChan := make(chan []byte, 1000)
+
+	// parsed packet channels
 	parsedChan := make(chan models.Packet, 1000)
 	filteredChan := make(chan models.Packet, 1000)
+
+	// stream events
 	streamChan := make(chan models.StreamEvent, 1000)
+
 	stop := make(chan struct{})
 
-	// stream parser (TLS)
+	// =========================
+	// STREAM PARSER
+	// =========================
+
 	streamParser := parser.NewStreamParser()
 
-	// CONNECT STREAM OUTPUT
 	streamParser.SetHandler(func(ev models.StreamEvent) {
 		streamChan <- ev
 	})
 
-	// reassembly
+	// =========================
+	// TCP REASSEMBLY
+	// =========================
+
 	streamFactory := reassembly.NewStreamFactory(streamParser)
+
 	assembler := reassembly.New(streamFactory)
+
+	// =========================
+	// FILTERS
+	// =========================
 
 	myFilter := &filter.BasicFilter{
 		AllowedProtocols: map[string]bool{
@@ -62,65 +93,133 @@ func main() {
 		},
 	}
 
-	// capture
-	go capture.StartCapture(handle, rawChan, stop)
+	// =========================
+	// START PACKET CAPTURE
+	// =========================
 
-	// packet pipeline
-	go parser.StartParser(rawChan, parsedChan)
-	go filter.StartFilter(parsedChan, filteredChan, myFilter)
+	go capture.StartCapture(
+		handle,
+		rawChan,
+		stop,
+	)
 
-	// single dispatcher for both parsing and filtering to handle stream reassembly
+	// =========================
+	// FAN-OUT DISPATCHER
+	// =========================
+
 	go func() {
+
 		for raw := range rawChan {
 
-			packet := gopacket.NewPacket(raw, layers.LayerTypeEthernet, gopacket.Default)
+			// send to parser pipeline
+			parseChan <- raw
 
-			//1. reassembly
-			assembler.Process(packet)
-
+			// send to TCP reassembly pipeline
+			assemblerChan <- raw
 		}
 	}()
-	// UI
 
-	// STREAM OUTPUT
+	// =========================
+	// PARSER PIPELINE
+	// =========================
+
+	go parser.StartParser(
+		parseChan,
+		parsedChan,
+	)
+
+	go filter.StartFilter(
+		parsedChan,
+		filteredChan,
+		myFilter,
+	)
+
+	// =========================
+	// TCP STREAM REASSEMBLY
+	// =========================
+
 	go func() {
+
+		for raw := range assemblerChan {
+
+			packet := gopacket.NewPacket(
+				raw,
+				layers.LayerTypeEthernet,
+				gopacket.Default,
+			)
+
+			assembler.Process(packet)
+		}
+	}()
+
+	// =========================
+	// STREAM OUTPUT
+	// =========================
+
+	go func() {
+
 		for ev := range streamChan {
 
 			if ev.IsTLS {
-				fmt.Printf("[TLS] %s | SNI: %s | %d bytes\n",
+
+				fmt.Printf(
+					"[TLS] %s | SNI: %s | %d bytes\n",
 					ev.Key,
 					ev.SNI,
 					ev.DataLen,
 				)
+
 				continue
 			}
 
-			fmt.Printf("[STREAM] %s | %d bytes\n",
+			fmt.Printf(
+				"[STREAM] %s | %d bytes\n",
 				ev.Key,
 				ev.DataLen,
 			)
 		}
 	}()
 
-	//packet output
+	// =========================
+	// PACKET OUTPUT
+	// =========================
+
 	for pkt := range filteredChan {
 
+		// DNS
 		if pkt.IsDNS {
-			fmt.Printf("[DNS] %s → %s | %s\n",
-				pkt.SrcIP, pkt.DstIP, pkt.DNSQuery)
+
+			fmt.Printf(
+				"[DNS] %s → %s | %s\n",
+				pkt.SrcIP,
+				pkt.DstIP,
+				pkt.DNSQuery,
+			)
+
 			continue
 		}
 
+		// TLS
 		if pkt.IsTLS {
-			fmt.Printf("[TLS] %s → %s | SNI: %s\n",
-				pkt.SrcIP, pkt.DstIP, pkt.TLSSNI)
+
+			fmt.Printf(
+				"[TLS] %s → %s | SNI: %s\n",
+				pkt.SrcIP,
+				pkt.DstIP,
+				pkt.TLSSNI,
+			)
+
 			continue
 		}
 
-		fmt.Printf("[%s] %s:%d → %s:%d | %d bytes\n",
+		// Generic packets
+		fmt.Printf(
+			"[%s] %s:%d → %s:%d | %d bytes\n",
 			pkt.AppProtocol,
-			pkt.SrcIP, pkt.SrcPort,
-			pkt.DstIP, pkt.DstPort,
+			pkt.SrcIP,
+			pkt.SrcPort,
+			pkt.DstIP,
+			pkt.DstPort,
 			pkt.Length,
 		)
 	}
