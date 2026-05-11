@@ -1,7 +1,7 @@
 package parser
 
 import (
-	"packet-sniffer/pkg/models"
+	"packet-sniffer/internal/models"
 
 	"github.com/google/gopacket"
 )

@@ -10,4 +10,5 @@ func RegisterRoutes(
 	interfaceHandler *handlers.InterfaceHandler,
 ) {
 	mux.HandleFunc("/interfaces", interfaceHandler.GetInterfaces)
+	mux.HandleFunc("/filter", interfaceHandler.UpdateFilter)
 }

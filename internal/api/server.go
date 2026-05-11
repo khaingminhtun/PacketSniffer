@@ -14,8 +14,9 @@ func StartServer() error {
 	mux := http.NewServeMux()
 
 	interfaceService := service.NewInterfaceService()
+	captureService := service.NewCaptureService()
 
-	interfaceHandler := handlers.NewInterfaceHandler(interfaceService)
+	interfaceHandler := handlers.NewInterfaceHandler(interfaceService, captureService)
 
 	routes.RegisterRoutes(
 		mux,

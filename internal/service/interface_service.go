@@ -1,7 +1,7 @@
 package service
 
 import (
-	"packet-sniffer/internal/core/capture"
+	"packet-sniffer/internal/core/netfaces"
 	"packet-sniffer/internal/models"
 )
 
@@ -12,5 +12,5 @@ func NewInterfaceService() *InterfaceService {
 }
 
 func (s *InterfaceService) GetAllInterfaces() ([]models.NetworkInterface, error) {
-	return capture.GetInterfaces()
+	return netfaces.GetInterfaces()
 }

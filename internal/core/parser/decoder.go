@@ -3,9 +3,9 @@ package parser
 import (
 	"log"
 
-	"packet-sniffer/internal/analyzer"
+	"packet-sniffer/internal/core/analyzer"
+	"packet-sniffer/internal/models"
 	"packet-sniffer/internal/utils"
-	"packet-sniffer/pkg/models"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"

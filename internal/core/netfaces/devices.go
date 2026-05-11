@@ -1,4 +1,4 @@
-package capture
+package netfaces
 
 import (
 	"packet-sniffer/internal/models"
