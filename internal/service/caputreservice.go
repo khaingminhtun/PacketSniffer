@@ -165,6 +165,10 @@ func (s *CaptureService) StartCapture(iface string) error {
 	return nil
 }
 
+func (s *CaptureService) GetBus() *bus.EventBus {
+	return s.bus
+}
+
 func (s *CaptureService) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()

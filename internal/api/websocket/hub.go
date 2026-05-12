@@ -1,0 +1,54 @@
+package websocket
+
+import "sync"
+
+type Hub struct {
+	mu sync.RWMutex
+
+	clients    map[*Client]bool
+	broadcast  chan []byte
+	register   chan *Client
+	unregister chan *Client
+}
+
+func NewHub() *Hub {
+	return &Hub{
+		clients:    make(map[*Client]bool),
+		register:   make(chan *Client),
+		unregister: make(chan *Client),
+		broadcast:  make(chan []byte, 1000),
+	}
+}
+
+func (h *Hub) Run() {
+	for {
+		select {
+
+		case client := <-h.register:
+			h.mu.Lock()
+			h.clients[client] = true
+			h.mu.Unlock()
+
+		case client := <-h.unregister:
+			h.mu.Lock()
+
+			if _, ok := h.clients[client]; ok {
+				delete(h.clients, client)
+				close(client.send)
+			}
+			h.mu.Unlock()
+
+		case message := <-h.broadcast:
+			h.mu.Lock()
+			for client := range h.clients {
+				select {
+				case client.send <- message:
+				default:
+					close(client.send)
+					delete(h.clients, client)
+				}
+			}
+			h.mu.Unlock()
+		}
+	}
+}

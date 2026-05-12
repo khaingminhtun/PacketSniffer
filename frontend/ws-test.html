@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebSocket Test</title>
+</head>
+<body>
+
+<h1>Packet Sniffer WebSocket Test</h1>
+
+<pre id="output"></pre>
+
+<script>
+  const output = document.getElementById("output");
+
+  const ws = new WebSocket("ws://localhost:8080/ws");
+
+  ws.onopen = () => {
+    console.log("CONNECTED");
+    output.textContent += "CONNECTED\n";
+  };
+
+  ws.onmessage = (event) => {
+    console.log(event.data);
+
+    output.textContent += event.data + "\n\n";
+  };
+
+  ws.onerror = (err) => {
+    console.error(err);
+  };
+
+  ws.onclose = () => {
+    console.log("DISCONNECTED");
+  };
+</script>
+
+</body>
+</html>

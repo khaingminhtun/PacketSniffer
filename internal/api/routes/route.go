@@ -7,8 +7,26 @@ import (
 
 func RegisterRoutes(
 	mux *http.ServeMux,
-	interfaceHandler *handlers.InterfaceHandler,
+	centralHandler *handlers.CentralHandler,
 ) {
-	mux.HandleFunc("/interfaces", interfaceHandler.GetInterfaces)
-	mux.HandleFunc("/filter", interfaceHandler.UpdateFilter)
+
+	mux.HandleFunc(
+		"GET /interfaces",
+		centralHandler.GetInterfaces,
+	)
+
+	mux.HandleFunc(
+		"POST /filter",
+		centralHandler.UpdateFilter,
+	)
+
+	mux.HandleFunc(
+		"POST /capture/start/{id}",
+		centralHandler.StartCapture,
+	)
+
+	mux.HandleFunc(
+		"POST /capture/stop",
+		centralHandler.StopCapture,
+	)
 }
