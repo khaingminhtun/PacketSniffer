@@ -1,12 +1,14 @@
 package service
 
 import (
+	"sync"
+
+	"packet-sniffer/internal/core/bus"
 	"packet-sniffer/internal/core/capture"
 	"packet-sniffer/internal/core/filter"
 	"packet-sniffer/internal/core/parser"
 	"packet-sniffer/internal/core/reassembly"
 	"packet-sniffer/internal/models"
-	"sync"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -14,7 +16,8 @@ import (
 )
 
 type CaptureService struct {
-	mu sync.Mutex
+	mu  sync.Mutex
+	bus *bus.EventBus
 
 	handle  *pcap.Handle
 	stop    chan struct{}
@@ -32,23 +35,18 @@ type CaptureService struct {
 
 	// STREAM PIPELINE
 	assemblerChan chan []byte
-	streamChan    chan models.StreamEvent
 
 	// ENGINE
 	filterManager *filter.Manager
 	parser        *parser.StreamParser
 	assembler     *reassembly.Assembler
-
-	// OUTPUT (optional websocket hook)
-	packetHandler func(models.Packet)
-	streamHandler func(models.StreamEvent)
 }
 
 func NewCaptureService() *CaptureService {
 
 	p := parser.NewStreamParser()
 
-	return &CaptureService{
+	s := &CaptureService{
 		rawChan: make(chan []byte, 1000),
 
 		parseChan:    make(chan []byte, 1000),
@@ -56,11 +54,24 @@ func NewCaptureService() *CaptureService {
 		filteredChan: make(chan models.Packet, 1000),
 
 		assemblerChan: make(chan []byte, 1000),
-		streamChan:    make(chan models.StreamEvent, 1000),
 
 		filterManager: filter.NewManager(),
 		parser:        p,
+		bus:           bus.NewEventBus(),
 	}
+
+	// IMPORTANT: StreamParser → EventBus directly
+	p.SetHandler(func(ev models.StreamEvent) {
+		s.bus.Publish(bus.Event{
+			Type: bus.EventStream,
+			Data: ev,
+		})
+	})
+
+	// IMPORTANT: initialize assembler correctly
+	s.assembler = reassembly.New(reassembly.NewStreamFactory(p))
+
+	return s
 }
 
 func (s *CaptureService) StartCapture(iface string) error {
@@ -76,15 +87,11 @@ func (s *CaptureService) StartCapture(iface string) error {
 	if err != nil {
 		return err
 	}
+
 	s.handle = handle
 	s.activeInterface = iface
 	s.stop = make(chan struct{})
 	s.running = true
-
-	// STREAM PARSER OUTPUT
-	s.parser.SetHandler(func(ev models.StreamEvent) {
-		s.streamChan <- ev
-	})
 
 	// =========================
 	// 1. RAW CAPTURE
@@ -92,7 +99,7 @@ func (s *CaptureService) StartCapture(iface string) error {
 	go capture.StartCapture(handle, s.rawChan, s.stop)
 
 	// =========================
-	// 2. FANOUT RAW → TWO PATHS
+	// 2. SAFE FANOUT
 	// =========================
 	go func() {
 		for {
@@ -100,12 +107,12 @@ func (s *CaptureService) StartCapture(iface string) error {
 			case <-s.stop:
 				return
 
-			case raw := <-s.rawChan:
+			case raw, ok := <-s.rawChan:
+				if !ok {
+					return
+				}
 
-				// packet pipeline
 				s.parseChan <- raw
-
-				// stream pipeline
 				s.assemblerChan <- raw
 			}
 		}
@@ -126,42 +133,36 @@ func (s *CaptureService) StartCapture(iface string) error {
 	// 4. STREAM PIPELINE
 	// =========================
 	go func() {
-		for raw := range s.assemblerChan {
+		for {
+			select {
+			case <-s.stop:
+				return
 
-			packet := gopacket.NewPacket(
-				raw,
-				layers.LayerTypeEthernet,
-				gopacket.Default,
-			)
+			case raw := <-s.assemblerChan:
+				packet := gopacket.NewPacket(
+					raw,
+					layers.LayerTypeEthernet,
+					gopacket.Default,
+				)
 
-			s.assembler.Process(packet)
+				s.assembler.Process(packet)
+			}
 		}
 	}()
 
 	// =========================
-	// 5. OUTPUT LAYER (PACKETS)
+	// 5. EVENTBUS OUTPUT (PACKETS)
 	// =========================
 	go func() {
 		for pkt := range s.filteredChan {
-			if s.packetHandler != nil {
-				s.packetHandler(pkt)
-			}
-		}
-	}()
-
-	// =========================
-	// 6. OUTPUT LAYER (STREAMS)
-	// =========================
-	go func() {
-		for ev := range s.streamChan {
-			if s.streamHandler != nil {
-				s.streamHandler(ev)
-			}
+			s.bus.Publish(bus.Event{
+				Type: bus.EventPacket,
+				Data: pkt,
+			})
 		}
 	}()
 
 	return nil
-
 }
 
 func (s *CaptureService) Stop() {
