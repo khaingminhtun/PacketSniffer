@@ -14,52 +14,139 @@ func GetInterfaces() ([]models.NetworkInterface, error) {
 		return nil, err
 	}
 
-	var result []models.NetworkInterface
+	result := make([]models.NetworkInterface, 0, len(devices))
+
+	idCounter := 1
 
 	for _, dev := range devices {
 
 		desc := strings.ToLower(dev.Description)
+		name := dev.Name
 
-		interfaceType := "unknown"
-
-		switch {
-		case strings.Contains(desc, "wi-fi"):
-			interfaceType = "wifi"
-
-		case strings.Contains(desc, "wireless"):
-			interfaceType = "wifi"
-
-		case strings.Contains(desc, "ethernet"):
-			interfaceType = "ethernet"
-
-		case strings.Contains(desc, "loopback"):
-			interfaceType = "loopback"
-
-		case strings.Contains(desc, "virtual"):
-			interfaceType = "virtual"
-
-		case strings.Contains(desc, "vpn"):
-			interfaceType = "vpn"
-
+		if desc == "" {
+			desc = strings.ToLower(name)
 		}
 
-		var ips []string
+		interfaceType := detectType(desc)
 
-		for _, addr := range dev.Addresses {
-			ips = append(ips, addr.IP.String())
-		}
+		ips := extractIPs(dev.Addresses)
 
 		result = append(result, models.NetworkInterface{
-			ID:          dev.Name,
-			Description: dev.Description, Name: dev.Description,
+			ID:          idCounter,       // ✅ numeric frontend ID
+			PcapID:      dev.Name,        // keep real capture id internally
+			Name:        dev.Description, // readable name
+			Description: dev.Description,
 
-			Type:       interfaceType,
-			IPs:        ips,
-			IsLoopback: strings.Contains(desc, "loopback"),
-			IsVirtual:  strings.Contains(desc, "virtual"),
-			IsUp:       true,
+			Type: interfaceType,
+			IPs:  ips,
+
+			IsLoopback: isLoopback(desc, ips),
+			IsVirtual:  isVirtual(desc),
+			IsUp:       len(ips) > 0,
 		})
+
+		idCounter++
 	}
 
 	return result, nil
+}
+
+func detectType(desc string) string {
+
+	switch {
+	case strings.Contains(desc, "wi-fi"), strings.Contains(desc, "wireless"):
+		return "wifi"
+
+	case strings.Contains(desc, "ethernet"):
+		return "ethernet"
+
+	case strings.Contains(desc, "loopback"):
+		return "loopback"
+
+	case strings.Contains(desc, "vpn"), strings.Contains(desc, "tap"):
+		return "vpn"
+
+	case strings.Contains(desc, "virtual"):
+		return "virtual"
+
+	default:
+		return "unknown"
+	}
+}
+
+func extractIPs(addrs []pcap.InterfaceAddress) []string {
+
+	var ips []string
+	var fallback []string
+
+	for _, addr := range addrs {
+
+		if addr.IP == nil {
+			continue
+		}
+
+		ip := addr.IP.String()
+
+		// IPv4 valid
+		if strings.Contains(ip, ".") {
+
+			// skip APIPA unless needed
+			if strings.HasPrefix(ip, "169.254") {
+				fallback = append(fallback, ip)
+				continue
+			}
+
+			ips = append(ips, ip)
+			continue
+		}
+
+		// IPv6
+		if strings.HasPrefix(ip, "fe80") {
+			continue // skip noisy link-local
+		}
+
+		if ip != "::1" {
+			ips = append(ips, ip)
+		}
+	}
+
+	if len(ips) == 0 {
+		return fallback
+	}
+
+	return ips
+}
+
+func isLoopback(desc string, ips []string) bool {
+	if strings.Contains(desc, "loopback") {
+		return true
+	}
+
+	for _, ip := range ips {
+		if ip == "127.0.0.1" || ip == "::1" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isVirtual(desc string) bool {
+
+	keywords := []string{
+		"virtual",
+		"vmware",
+		"virtualbox",
+		"hyper-v",
+		"tap",
+		"tunnel",
+	}
+
+	for _, k := range keywords {
+		if strings.Contains(desc, k) {
+			return true
+		}
+	}
+
+	return false
 }

@@ -1,14 +1,16 @@
 package models
 
 type StreamEvent struct {
-	Key     string
+	Key string
+
 	SrcIP   string
 	DstIP   string
+	SrcPort string
+	DstPort string
+
+	Bytes   []byte
 	DataLen int
 
-	IsTLS  bool
-	IsHTTP bool
-
-	Bytes []byte
+	IsTLS bool
 	SNI   string
 }

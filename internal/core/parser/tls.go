@@ -44,6 +44,12 @@ func (p *StreamParser) HandleStream(net, transport gopacket.Flow, data []byte) {
 		Bytes:   stream,
 	}
 
+	event.SrcIP = net.Src().String()
+	event.DstIP = net.Dst().String()
+
+	event.SrcPort = transport.Src().String()
+	event.DstPort = transport.Dst().String()
+
 	if !p.sniSeen[key] {
 
 		if sni, ok := extractSNI(stream); ok {

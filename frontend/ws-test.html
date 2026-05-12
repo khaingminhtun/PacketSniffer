@@ -36,3 +36,19 @@
 
 </body>
 </html>
+
+<button onclick="startCapture(4)">Start Capture (ID 4)</button>
+<button onclick="startCapture(4)">Start Capture (ID r)</button>
+
+<script>
+function startCapture(id) {
+  fetch(`http://localhost:8080/capture/start/${id}`, {
+    method: "POST"
+  })
+  .then(res => res.text())
+  .then(data => {
+    console.log("Started:", data);
+  })
+  .catch(console.error);
+}
+</script>

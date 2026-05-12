@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"sync"
 
 	"packet-sniffer/internal/core/bus"
@@ -19,9 +20,11 @@ type CaptureService struct {
 	mu  sync.Mutex
 	bus *bus.EventBus
 
-	handle  *pcap.Handle
-	stop    chan struct{}
-	running bool
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+
+	handle *pcap.Handle
 
 	activeInterface string
 
@@ -40,13 +43,21 @@ type CaptureService struct {
 	filterManager *filter.Manager
 	parser        *parser.StreamParser
 	assembler     *reassembly.Assembler
+
+	running bool
 }
 
 func NewCaptureService() *CaptureService {
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	p := parser.NewStreamParser()
 
 	s := &CaptureService{
+		ctx:    ctx,
+		cancel: cancel,
+		wg:     sync.WaitGroup{},
+
 		rawChan: make(chan []byte, 1000),
 
 		parseChan:    make(chan []byte, 1000),
@@ -90,21 +101,28 @@ func (s *CaptureService) StartCapture(iface string) error {
 
 	s.handle = handle
 	s.activeInterface = iface
-	s.stop = make(chan struct{})
+	// s.stop = make(chan struct{})
 	s.running = true
 
 	// =========================
 	// 1. RAW CAPTURE
 	// =========================
-	go capture.StartCapture(handle, s.rawChan, s.stop)
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		capture.StartCapture(handle, s.rawChan, s.ctx.Done())
+	}()
 
 	// =========================
 	// 2. SAFE FANOUT
 	// =========================
+	s.wg.Add(1)
 	go func() {
+		defer s.wg.Done()
+
 		for {
 			select {
-			case <-s.stop:
+			case <-s.ctx.Done():
 				return
 
 			case raw, ok := <-s.rawChan:
@@ -121,21 +139,32 @@ func (s *CaptureService) StartCapture(iface string) error {
 	// =========================
 	// 3. PACKET PIPELINE
 	// =========================
-	go parser.StartParser(s.parseChan, s.parsedChan)
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		parser.StartParser(s.parseChan, s.parsedChan)
+	}()
 
-	go filter.StartFilter(
-		s.parsedChan,
-		s.filteredChan,
-		s.filterManager,
-	)
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		filter.StartFilter(
+			s.parsedChan,
+			s.filteredChan,
+			s.filterManager,
+		)
+	}()
 
 	// =========================
 	// 4. STREAM PIPELINE
 	// =========================
+	s.wg.Add(1)
 	go func() {
+		defer s.wg.Done()
+
 		for {
 			select {
-			case <-s.stop:
+			case <-s.ctx.Done():
 				return
 
 			case raw := <-s.assemblerChan:
@@ -151,14 +180,23 @@ func (s *CaptureService) StartCapture(iface string) error {
 	}()
 
 	// =========================
-	// 5. EVENTBUS OUTPUT (PACKETS)
+	// 5. EVENTBUS (PACKETS)
 	// =========================
+	s.wg.Add(1)
 	go func() {
-		for pkt := range s.filteredChan {
-			s.bus.Publish(bus.Event{
-				Type: bus.EventPacket,
-				Data: pkt,
-			})
+		defer s.wg.Done()
+
+		for {
+			select {
+			case <-s.ctx.Done():
+				return
+
+			case pkt := <-s.filteredChan:
+				s.bus.Publish(bus.Event{
+					Type: bus.EventPacket,
+					Data: pkt,
+				})
+			}
 		}
 	}()
 
@@ -181,12 +219,19 @@ func (s *CaptureService) stopInternal() {
 		return
 	}
 
-	close(s.stop)
+	// 1. signal all goroutines
+	s.cancel()
 
+	// 2. close pcap capture
 	if s.handle != nil {
 		s.handle.Close()
+		s.handle = nil
 	}
 
+	// 3. wait all goroutines finish
+	s.wg.Wait()
+
+	// 4. safe state reset
 	s.running = false
 }
 

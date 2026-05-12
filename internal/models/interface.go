@@ -1,7 +1,8 @@
 package models
 
 type NetworkInterface struct {
-	ID          string   `json:"id"`
+	ID          int      `json:"id"`
+	PcapID      string   `json:"pcap_id"`
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	Type        string   `json:"type"`

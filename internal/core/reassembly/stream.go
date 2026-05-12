@@ -11,8 +11,11 @@ type TCPStream struct {
 	net, transport gopacket.Flow
 	reader         tcpreader.ReaderStream
 	handler        StreamHandler
-
-	buffer []byte
+	srcIP          string
+	dstIP          string
+	srcPort        string
+	dstPort        string
+	buffer         []byte
 }
 
 func NewTCPStream(net, transport gopacket.Flow, h StreamHandler) *TCPStream {
@@ -22,6 +25,11 @@ func NewTCPStream(net, transport gopacket.Flow, h StreamHandler) *TCPStream {
 		reader:    tcpreader.NewReaderStream(),
 		handler:   h,
 	}
+
+	s.srcIP = net.Src().String()
+	s.dstIP = net.Dst().String()
+	s.srcPort = transport.Src().String()
+	s.dstPort = transport.Dst().String()
 
 	go s.run()
 	return s

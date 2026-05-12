@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"packet-sniffer/internal/models"
 	"packet-sniffer/internal/service"
+	"strconv"
 )
 
 type CentralHandler struct {
@@ -43,14 +44,17 @@ func (h *CentralHandler) UpdateFilter(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *CentralHandler) StartCapture(w http.ResponseWriter, r *http.Request) {
-	iface := r.PathValue("id")
+	idStr := r.PathValue("id")
+	id, _ := strconv.Atoi(idStr)
 
-	if iface == "" {
-		http.Error(w, "missing interface id", http.StatusBadRequest)
+	iface, err := h.ifservice.GetByID(id)
+	if err != nil {
+		http.Error(w, "interface not found", http.StatusBadRequest)
 		return
 	}
 
-	err := h.capfilservice.StartCapture(iface)
+	err = h.capfilservice.StartCapture(iface.PcapID)
+
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

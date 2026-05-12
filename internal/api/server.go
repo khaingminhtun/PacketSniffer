@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"packet-sniffer/internal/api/handlers"
+	"packet-sniffer/internal/api/middleware"
 	"packet-sniffer/internal/api/routes"
 	"packet-sniffer/internal/api/websocket"
 	"packet-sniffer/internal/service"
@@ -14,7 +15,7 @@ func StartServer() error {
 
 	mux := http.NewServeMux()
 
-	//services
+	// services
 	interfaceService := service.NewInterfaceService()
 	captureService := service.NewCaptureService()
 
@@ -22,7 +23,6 @@ func StartServer() error {
 	hub := websocket.NewHub()
 	go hub.Run()
 
-	// websocket broadcaster
 	websocket.StartBroadcaster(
 		captureService.GetBus(),
 		hub,
@@ -33,18 +33,21 @@ func StartServer() error {
 		captureService,
 	)
 
-	// rest routes
+	// routes
 	routes.RegisterRoutes(
 		mux,
 		interfaceHandler,
 	)
 
-	// websocket route
+	// websocket
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		websocket.ServeWS(hub, w, r)
 	})
 
 	fmt.Println("HTTP server running on :8080")
 
-	return http.ListenAndServe(":8080", mux)
+	// ✅ WRAP WITH MIDDLEWARE HERE (IMPORTANT PART)
+	handler := middleware.CORS(mux)
+
+	return http.ListenAndServe(":8080", handler)
 }
