@@ -1,0 +1,38 @@
+# Build artifacts
+bin
+dist
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Secrets & local config
+.env
+.env.*
+
+# Git & tooling
+.git
+.github
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea
+.vscode
+.cursor
+
+# Logs & caches
+*.log
+.cache
+
+# Docs & misc (not needed in image)
+*.md
+
+# Docker (optional: slimmer build context)
+Dockerfile*
+.dockerignore
