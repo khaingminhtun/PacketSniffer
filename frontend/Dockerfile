@@ -10,6 +10,12 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
+
+ARG VITE_API_BASE=http://localhost:8080
+ARG VITE_WS_URL=ws://localhost:8080/ws
+ENV VITE_API_BASE=$VITE_API_BASE
+ENV VITE_WS_URL=$VITE_WS_URL
+
 RUN npm run build
 
 # --- Static hosting ---
